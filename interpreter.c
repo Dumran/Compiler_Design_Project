@@ -1,25 +1,15 @@
 #include "interpreter.h"
 
-//---------------------------------------------------------
-// 1) Lexer ile ilgili global değişkenler
-//---------------------------------------------------------
-static const char* input;  // Program metni
-static int         position; // input içindeki indeks
+static const char* input;
+static int         position;
 static Token       currentToken;
 
-// Değişken tablosu: 'a'..'z' -> 26 tamsayı
 static int variables[26];
 
-// "Yürütme bayrağı" (IF veya WHILE false iken semantic actionları atlamak için)
-//  - 1 ise "execute" modunda, 0 ise "skip" modunda parse edilir.
 static int executeFlag = 1; 
 
-//---------------------------------------------------------
-// 2) Lexer (getToken) - Basit Tokenizer
-//---------------------------------------------------------
 static Token getToken() {
     Token t;
-    // Boşluk veya satır sonu karakterlerini geç
     while (input[position] && isspace((unsigned char)input[position])) {
         position++;
     }
@@ -52,7 +42,6 @@ static Token getToken() {
         case '<': t.type = T_LT;       t.ch = c; return t;
         case '>': t.type = T_GT;       t.ch = c; return t;
         default:
-            // a-z => ID, 0-9 => NUM, aksi T_UNKNOWN
             if (islower((unsigned char)c)) {
                 t.type = T_ID;
                 t.ch   = c;
@@ -69,9 +58,6 @@ static Token getToken() {
     }
 }
 
-//---------------------------------------------------------
-// Yardımcı fonksiyonlar
-//---------------------------------------------------------
 static void getNextToken() {
     currentToken = getToken();
 }
@@ -80,22 +66,6 @@ static void error(const char* msg) {
     fprintf(stderr, "Parser error: %s\n", msg);
     exit(1);
 }
-
-//---------------------------------------------------------
-// 3) Token buffer'lama mekanizması (özellikle WHILE için)
-//---------------------------------------------------------
-//
-// WHILE bloğu: '{' E '?' C{C} '}'
-//   -> Koşul ifadesi (E) nin tokenlarını buffer’a almak
-//   -> Bloğun tokenlarını '}' görene dek buffer'a almak
-//   -> cond != 0 ise o bloğu tekrar parse + execute
-//
-// Bunu yapmak için 2 fonksiyon yazacağız:
-//  1) bufferTokens() : Belirli bir bitiş tokenına kadar tokenları bir diziye koyacak
-//  2) parseTokens()  : O token dizisini "sub-parse" edecek (yanı proje içinde mini-lexer).
-//
-// Bu sayede "koşul 0 olmadığı sürece" bloğu tekrar parse + execute edebiliriz.
-//
 
 static void initTokenBuffer(TokenBuffer* buf) {
     buf->count = 0;
@@ -120,7 +90,6 @@ static void pushToken(TokenBuffer* buf, Token tk) {
     buf->tokens[buf->count++] = tk;
 }
 
-// MiniLexer fonksiyonları
 static void ml_init(MiniLexer* ml, Token* tokens, int size) {
     ml->tokens = tokens;
     ml->pos    = 0;
@@ -136,71 +105,50 @@ static Token ml_getToken(MiniLexer* ml) {
     }
     return ml->tokens[ml->pos++];
 }
-
-// "alt parse" yaparken global currentToken'ı bozmamak için
-// global fonksiyonların kopyalarını yapacağız. 
-// parseTokens fonksiyonunda "P, C, vb." fonksiyonların mini versiyonları veya 
-// global fonksiyonların "re-entrant" şekli gerekecek. 
-// Burada en basit yaklaşım: parseWhileBody vb. adında bir alt fonksiyon yazıp
-// "MiniLexer"i local tutacağız.
-
-//---------------------------------------------------------
-// 4) Gramer Fonksiyonları (TAM UYGULAMA)
-//---------------------------------------------------------
-
-// P → { C } '.'
 static void P() {
-    // '.' görene kadar sıfır veya daha fazla C
     while (currentToken.type != T_DOT) {
         if (currentToken.type == T_END) {
             error("P: Program sonu gelmeden '.' bekleniyor.");
         }
         C();
     }
-    // currentToken.type == T_DOT, bunu yiyoruz
     getNextToken();
     printf("Program basariyla parse edildi.\n");
 }
 
-// C → I | W | A | Ç | G
 static void C() {
     switch (currentToken.type) {
-        case T_LBRACKET: // '[' => I()
-            getNextToken(); // '[' tüket
+        case T_LBRACKET:
+            getNextToken();
             I();
             break;
-        case T_LBRACE:   // '{' => W()
-            getNextToken(); // '{'
+        case T_LBRACE:
+            getNextToken();
             W();
             break;
-        case T_ID:       // A() => K '=' E ';'
+        case T_ID:
             A();
             break;
-        case T_LT:       // '<' => Ç()
+        case T_LT:
             getNextToken();
             Cik();
             break;
-        case T_GT:       // '>' => G()
+        case T_GT:
             getNextToken();
             Girdi();
             break;
         default:
-            // C epsilon'a gitmiyor. Burada hata vermek en iyisi.
             error("C: Beklenmeyen token.");
     }
 }
-
-// I → '[' E '?' C{C} ':' C{C} ']' | '[' E '?' C{C} ']'
-// NOT: '[' tokenı C() içinde yendi, o yüzden I() da direkt E() parse
 static void I() {
-    int cond = E(); // E parse + evaluate
+    int cond = E(); 
 
     if (currentToken.type != T_QUESTION) {
         error("IF: '?' bekleniyor.");
     }
-    getNextToken(); // '?' yedik
+    getNextToken(); 
 
-    // Koşul TRUE => executeFlag = 1, FALSE => executeFlag = 0
     int savedFlag = executeFlag;
     if (cond != 0) {
         executeFlag = 1;
@@ -208,21 +156,17 @@ static void I() {
         executeFlag = 0;
     }
 
-    // if-body : C{C}, ':' veya ']' görene kadar parse
     while (currentToken.type != T_COLON && currentToken.type != T_RBRACKET) {
         if (currentToken.type == T_DOT || currentToken.type == T_END) {
             error("IF: ':' veya ']' bekleniyor.");
         }
-        C(); // C() parse + (executeFlag doğrultusunda) exec
+        C(); 
     }
 
-    // ELSE bölümü var mı?
     if (currentToken.type == T_COLON) {
-        // else var
-        getNextToken(); // ':' yedik
-        // else-body: ']' gelene kadar parse
+
+        getNextToken();
         if (cond != 0) {
-            // if koşulu TRUE ise else bloğunu SKIP
             executeFlag = 0;
         } else {
             executeFlag = 1;
@@ -235,39 +179,20 @@ static void I() {
         }
     }
 
-    // ']' bekleniyor
     if (currentToken.type != T_RBRACKET) {
         error("IF: ']' bekleniyor.");
     }
-    getNextToken(); // ']' yedik
+    getNextToken();
 
-    // executeFlag restore
+
     executeFlag = savedFlag;
 }
-
-// W → '{' E '?' C{C} '}'
-static void W() {
-    // Koşul ifadesi (E) tokenlarını buffer'a alacağız (çünkü her iterasyonda tekrar evaluate etmek gerek)
-    // 1) E()'yi parse etmeden önce tokenlarını toplayalım:
-    // Aslında parse etmeden token toplamak karmaşık, 
-    // en kolayı: E() parse edip "cond" hesaplamak bir kez, 
-    // ama tekrar parse için de token yok olur (lexer ilerler).
-    // Daha doğru yaklaşım:
-    //   - Koşul E'sini "token buffer"ına kaydedip,
-    //   - parseWhileCondition() fonksiyonuyla tekrar tekrar evaluate edelim.
-
-    // Plan:
-    //   - Koşul E'sinin tokenlarını '?' gelene kadar buffer'a dolduralım.
-    //   - Sonra '?' yi bekleyip yedikten sonra
-    //   - Döngü bloğunu '}' gelene kadar buffer'a dolduralım.
-    //   - Artık elimizde 2 token buffer var: condTokens, blockTokens.
-    //   - while (evaluate(condTokens) != 0) { parseAndExecute(blockTokens) }
-
-    // step 1: Koşul tokenlarını '?' görene dek buffer'a al
+static void W() 
+{
+   
     TokenBuffer condBuf; 
     initTokenBuffer(&condBuf);
 
-    // Lexer state. Geri dönmek zor olduğu için, '?' görene kadar tokenları sakla
     while (currentToken.type != T_QUESTION) {
         if (currentToken.type == T_END || currentToken.type == T_DOT) {
             error("WHILE: Kosul ifadesinde '?' bekleniyor.");
@@ -275,10 +200,8 @@ static void W() {
         pushToken(&condBuf, currentToken);
         getNextToken();
     }
-    // currentToken.type == T_QUESTION
-    getNextToken(); // '?' yedik
+    getNextToken();
 
-    // step 2: Döngü bloğunu '}' görene dek buffer'a al
     TokenBuffer blockBuf;
     initTokenBuffer(&blockBuf);
 
@@ -289,50 +212,17 @@ static void W() {
         pushToken(&blockBuf, currentToken);
         getNextToken();
     }
-    // '}' yedik
-    getNextToken(); // döngü bitti
+    getNextToken();
 
-    // Şimdi condBuf içinde E ifadesinin tokenları var
-    // blockBuf içinde C{C} nin tokenları var
-    // Tekrar tekrar evaluate + execute edelim:
     while (1) {
-        // Evaluate condBuf
-        // MiniLexer aç
         MiniLexer mlCond;
         ml_init(&mlCond, condBuf.tokens, condBuf.count);
 
-        // Mini parse: E() fonksiyonunu çalıştırmak için minik kopya fonksiyonu yapabiliriz
-        // ama buradaki E() global currentToken'a bakıyor. Bu global state'i bozmadan 
-        // "cond" hesaplamanın en pratik yolu: 
-        //   - "EvalExpressionFromTokens" gibi local bir fonksiyon yazalım.
-
-        // Koşulu değerlendir
-        // E => T => U => F kuralını mini-parse edelim.
-        // Bu fonksiyonu hemen yazalım:
-
-        // 1) parse and compute E from condBuf
-        //    eğer cond == 0, break
-        //    !=0 ise blockBuf parse+execute
-
-        // Ama semantik action (değişken tablosu) ortak. 
-        // "executeFlag" 1 ise atama vb. işlesin. 
-        // Koşul ifadesini her zaman "eval" etmemiz gerekiyor, "skip" yok.
-        // O yüzden E'yi parse eden "mini parser" lazim.
-
-        // Evaluate E tokens
-        // E() => T() => U() => F() 
-        // Bu mini parser + mini E/T/U/F kopyasını yapalım.
-
-        // Koşul ifadesinin parse-interpret fonksiyonu
         int condVal = 0;
 
-        // *** ÖNEMLİ *** 
-        // Aşağıdaki "mini" fonksiyonlarla global parser'ı taklit ediyoruz:
-
-        // Forward decl
+       
         int parseE(MiniLexer* ml);
 
-        // Mini versions:
         int parseF(MiniLexer* ml) {
             Token tk = ml_getToken(ml);
             if (tk.type == T_LPAREN) {
@@ -355,10 +245,9 @@ static void W() {
 
         int parseU(MiniLexer* ml) {
             int left = parseF(ml);
-            // peek next token
+
             if (ml->pos < ml->size && ml->tokens[ml->pos].type == T_CARET) {
-                // '^'
-                ml->pos++; // consume '^'
+                ml->pos++;
                 int right = parseU(ml);
                 int result = 1;
                 for(int i=0; i<right; i++){
@@ -409,62 +298,13 @@ static void W() {
 
         condVal = parseE(&mlCond);
 
-        // mlCond bitti
-        // condVal == 0 -> döngüden çık
         if (condVal == 0) {
             break;
         }
 
-        // condVal != 0 => blockBuf parse + execute
-        // Bunu global parse fonksiyonlarımızla tekrar edemeyiz, 
-        // yoksa global currentToken bozulur. 
-        // Onun yerine "mini parse" mi yapalım? 
-        // Evet, blockBuf'u parse edebilecek bir alt fonksiyon.
+        int block_E(BlockParser* bp);
 
-        // blockBuf: C{C} => normal parse mantığı. 
-        // Ama atama, if, vs. hepsi var, bunlar global F() vs. fonksiyonlarını çağırıyor. 
-        // Tek çare, orada da "mini parser" kopyası. 
-        // Yada "rekürsif descent"i block buffer'a uygulayacağız.
-
-        // Fakat *burada* biz tam dilin parse logic'ini kopyalamak istemiyoruz. 
-        // Ama proje gereği bu tam "dili" blockBuf içinden parse etmek istiyoruz. 
-        // Yani "C()" ifadesi mesela. 
-        // Mevcut global parse fonksiyonlarına "currentToken" beslemek gerekir.
-        // Bunu yapmak için ufak bir trick:
-        //  1) blockBuf'u global input'a "inject" edebiliriz. 
-        //  2) parse bitince geri döneriz. 
-        //  Bu çok karmaşık. 
-        // En iyi yaklaşım: local mini parser. 
-        // Fakat her kuralı kopyalamamız lazım (I, W, A, vs.).
-
-        // Kolay approach: 
-        // 1) Tek seferlik approach: blockBuf parse edelim, semantic action. 
-        // 2) Bunu yapabilmek için "tekrar parse" = blockBuf tokenlarını okuyan mini-lexer + "C() benzeri" kopyası. 
-        // Ama epey kod tekrarı olacak.
-
-        // Hızlı bir pratik çözüm: "blockBuf"u parse eden *** aynen *** global dil kopyası:
-        // parseBlockTokens(blockBuf), orada P, C, I, vb. minik kopyaları. 
-        // On-the-fly interpreter.
-
-        // Aşağıda "parseBlock" fonksiyonu yazıyoruz, 
-        // blockBuf tokenlarını sonuna kadar C() C() ... parse ediyor. 
-        // "}" yok, zira blockBuf zaten '}' görene kadar dolduruldu.
-
-        // parseBlock da "executeFlag" = 1 modunda cümlecikleri çalıştıracak.
-
-        // *** parseBlock fonksiyonu: blockBuf tokens bitene kadar C() parse ediyor. 
-        // But we must replicate the entire grammar. 
-        // Tek fark: blockBuf '}' tokenını içermiyor (zaten durdurduk). 
-        // Yani tokenlar bitene kadar C parse.
-
-        // *** Gelelim tekrara. Evet, her iteration blockBuf'u en baştan parse etmeliyiz. 
-
-        // Aynı grammar'ı implement eden minik fonksiyon kümesi:
-        // (Kod tekrarı çok, ama proje gereği)
-
-        int block_E(BlockParser* bp); // forward
-
-        void block_error(const char* msg) {
+        void block_error(const char* msg) { 
             fprintf(stderr, "WHILE block parse error: %s\n", msg);
             exit(1);
         }
@@ -478,7 +318,7 @@ static void W() {
             }
             return bp->tokens[bp->pos++];
         }
-        // "peeks" current token without consuming
+
         Token block_peekToken(BlockParser* bp) {
             if (bp->pos >= bp->size) {
                 Token t;
@@ -489,11 +329,11 @@ static void W() {
             return bp->tokens[bp->pos];
         }
 
-        void block_C(BlockParser* bp); // forward
+        void block_C(BlockParser* bp); 
         void block_I(BlockParser* bp);
 
         void block_parseBlock(BlockParser* bp) {
-            // block: bir dizi C. T_END veya block sonuna kadar
+
             while (bp->pos < bp->size) {
                 block_C(bp);
             }
@@ -502,21 +342,17 @@ static void W() {
         void block_C(BlockParser* bp) {
             Token tk = block_peekToken(bp);
             switch (tk.type) {
-                case T_LBRACKET: // '['
-                    block_nextToken(bp); // consume '['
+                case T_LBRACKET: 
+                    block_nextToken(bp);
                     block_I(bp);
                     break;
-                case T_LBRACE: // '{'
-                    // Nested while
-                    // Bu kadar proje kodu içerisinde nested while mini parser daha da karmaşık.
-                    // Sınırsız hallerde tam bir re-entrant parser gerekiyor. 
-                    // Zaman kısıtından dolayı bunları da kopyalıyoruz:
+                case T_LBRACE:
                     block_nextToken(bp); 
                     block_error("Nested while icin extra parser kodu gerekli, ornek iskelet.");
                     break;
                 case T_ID: {
-                    // A -> K '=' E ';'
-                    Token varTok = block_nextToken(bp); // T_ID
+
+                    Token varTok = block_nextToken(bp);
                     Token eqTok  = block_nextToken(bp); 
                     if (eqTok.type != T_ASSIGN) {
                         block_error("WHILE block: Atama icin '=' bekleniyor.");
@@ -532,7 +368,7 @@ static void W() {
                     }
                 } break;
                 case T_LT: {
-                    // '<' E ';'
+
                     block_nextToken(bp); 
                     int val = block_E(bp);
                     Token semi = block_nextToken(bp);
@@ -544,7 +380,6 @@ static void W() {
                     }
                 } break;
                 case T_GT: {
-                    // '>' K ';'
                     block_nextToken(bp);
                     Token varTok = block_nextToken(bp);
                     if (varTok.type != T_ID) {
@@ -563,9 +398,7 @@ static void W() {
                     }
                 } break;
                 default:
-                    // block'un sonu mu? T_END?
                     if (tk.type == T_END) {
-                        // block bitti
                         return;
                     }
                     block_error("WHILE block: Beklenmeyen token C()");
@@ -573,12 +406,9 @@ static void W() {
         }
 
         void block_I(BlockParser* bp) {
-            // IF benzeri: E '?' ...
             int saved = bp->execFlag;
-            // parse E
             int condVal = 0;
 
-            // minik parse E
             condVal = block_E(bp);
 
             Token qTok = block_nextToken(bp);
@@ -586,14 +416,12 @@ static void W() {
                 block_error("WHILE block: IF icin '?' bekleniyor.");
             }
 
-            // if-body parse => ':' veya ']' görene kadar
             if (condVal != 0) {
                 bp->execFlag = 1;
             } else {
                 bp->execFlag = 0;
             }
 
-            // parse if-body
             while (1) {
                 Token pk = block_peekToken(bp);
                 if (pk.type == T_COLON || pk.type == T_RBRACKET || pk.type == T_END) {
@@ -602,10 +430,9 @@ static void W() {
                 block_C(bp);
             }
 
-            // else var mı?
             pk = block_peekToken(bp);
             if (pk.type == T_COLON) {
-                block_nextToken(bp); // ':'
+                block_nextToken(bp);
                 if (condVal != 0) {
                     bp->execFlag = 0;
                 } else {
@@ -619,18 +446,15 @@ static void W() {
                     block_C(bp);
                 }
             }
-            // ']' bekle
             Token rb = block_nextToken(bp);
             if (rb.type != T_RBRACKET) {
                 block_error("WHILE block: IF icin ']' bekleniyor.");
             }
 
-            // restore execFlag
             bp->execFlag = saved;
         }
 
-        // block_E => T { (+|-) T }
-        int block_T(BlockParser* bp);  // forward
+        int block_T(BlockParser* bp);
 
         int block_E(BlockParser* bp) {
             int result = block_T(bp);
@@ -714,7 +538,6 @@ static void W() {
             return 0;
         }
 
-        // blockBuf parse & execute
         BlockParser bp;
         bp.tokens   = blockBuf.tokens;
         bp.pos      = 0;
@@ -723,27 +546,25 @@ static void W() {
         block_parseBlock(&bp);
     }
 
-    // Döngü bitti. Temizlik:
     freeTokenBuffer(&condBuf);
     freeTokenBuffer(&blockBuf);
 }
 
-// A → K '=' E ';'
 static void A() {
-    char varName = currentToken.ch; // T_ID
-    getNextToken(); // consume ID
+    char varName = currentToken.ch;
+    getNextToken();
 
     if (currentToken.type != T_ASSIGN) {
         error("Atama: '=' bekleniyor.");
     }
-    getNextToken(); // '='
+    getNextToken();
 
     int val = E();
 
     if (currentToken.type != T_SEMI) {
         error("Atama sonunda ';' bekleniyor.");
     }
-    getNextToken(); // ';'
+    getNextToken();
 
     if (executeFlag) {
         int idx = varName - 'a';
@@ -751,30 +572,28 @@ static void A() {
     }
 }
 
-// Ç → '<' E ';'
 static void Cik() {
     int val = E();
     if (currentToken.type != T_SEMI) {
         error("Cikti ifadesinde ';' bekleniyor.");
     }
-    getNextToken(); // ';'
+    getNextToken();
 
     if (executeFlag) {
         printf("%d\n", val);
     }
 }
 
-// G → '>' K ';'
 static void Girdi() {
     if (currentToken.type != T_ID) {
         error("Girdi ifadesinde degisken (ID) bekleniyor.");
     }
     char varName = currentToken.ch;
-    getNextToken(); // ID
+    getNextToken();
     if (currentToken.type != T_SEMI) {
         error("Girdi ifadesinde ';' bekleniyor.");
     }
-    getNextToken(); // ';'
+    getNextToken();
 
     if (executeFlag) {
         int val;
@@ -785,7 +604,6 @@ static void Girdi() {
     }
 }
 
-// E → T {('+' | '-') T}
 static int E() {
     int result = T();
     while (currentToken.type == T_PLUS || currentToken.type == T_MINUS) {
@@ -798,7 +616,6 @@ static int E() {
     return result;
 }
 
-// T → U {('*' | '/' | '%') U}
 static int T() {
     int result = U();
     while (currentToken.type == T_STAR || currentToken.type == T_SLASH || currentToken.type == T_MOD) {
@@ -822,11 +639,10 @@ static int T() {
     return result;
 }
 
-// U → F '^' U | F
 static int U() {
     int left = F();
     if (currentToken.type == T_CARET) {
-        getNextToken(); // '^'
+        getNextToken();
         int right = U();
         int result = 1;
         for(int i=0; i<right; i++){
@@ -837,15 +653,14 @@ static int U() {
     return left;
 }
 
-// F → '(' E ')' | K | R
 static int F() {
     if (currentToken.type == T_LPAREN) {
-        getNextToken(); // '('
+        getNextToken();
         int val = E();
         if (currentToken.type != T_RPAREN) {
             error("Parantez kapatma hatasi: ')' bekleniyor.");
         }
-        getNextToken(); // ')'
+        getNextToken();
         return val;
     } else if (currentToken.type == T_ID) {
         char varName = currentToken.ch;
@@ -862,27 +677,7 @@ static int F() {
     return 0;
 }
 
-//---------------------------------------------------------
-// 5) main - Test
-//---------------------------------------------------------
 int main() {
-    // Aşağıdaki program, projede istenen grammar ve while yapısının test örneğidir.
-    //
-    // Program (örnek):
-    //   n = 0;
-    //   { n - 2*5 ?
-    //     < n;
-    //     n = n + 1;
-    //   }
-    //   .
-    //
-    // Bu, n=0 iken (0 - 10 = -10) true (0 hariç her değer true). Döngü n=10 olana kadar devam eder.
-    // Beklenen çıktı: 0'dan 9'a kadar sayıları ekrana basar (toplam 10 kere).
-    //
-    // Bu tam bir while fonksiyonu. 
-    // Kodumuz "W()" fonksiyonu içerisinde condTokens ve blockTokens yaklaşımı kullanarak
-    // gerçek tekrar yürütecek.
-
     const char* programText =
         "n = 0;\n"
         "{ n - 2*5 ?\n"
@@ -900,4 +695,3 @@ int main() {
 
     return 0;
 }
-
