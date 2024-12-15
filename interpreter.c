@@ -1,13 +1,5 @@
 #include "interpreter.h"
 
-static const char* input;
-static int         position;
-static Token       currentToken;
-
-static int variables[26];
-
-static int executeFlag = 1; 
-
 static Token getToken() {
     Token t;
     while (input[position] && isspace((unsigned char)input[position])) {
@@ -223,7 +215,8 @@ static void W()
        
         int parseE(MiniLexer* ml);
 
-        int parseF(MiniLexer* ml) {
+        int parseF(MiniLexer* ml)
+		{
             Token tk = ml_getToken(ml);
             if (tk.type == T_LPAREN) {
                 int val = parseE(ml);

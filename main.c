@@ -12,7 +12,7 @@ int main()
 
     input = programText;
     position = 0;
-    memset(variables, 0, sizeof(variables));
+    ft_memset(variables, 0, sizeof(variables));
 
     getNextToken();
     P();

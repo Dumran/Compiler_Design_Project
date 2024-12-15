@@ -7,7 +7,16 @@
 // 0) Ön tanımlar, veri yapıları
 //---------------------------------------------------------
 
-typedef enum {
+static const char* input;
+static int         position;
+static Token       currentToken;
+
+static int variables[26];
+
+static int executeFlag = 1; 
+
+typedef enum 
+{
     T_ID,       // Tek karakter değişken (a-z)
     T_NUM,      // Tek basamak rakam (0-9)
     T_LBRACKET, // '['
@@ -33,11 +42,6 @@ typedef enum {
     T_UNKNOWN
 } TokenType;
 
-typedef struct {
-    TokenType type;
-    char      ch;  // T_ID için hangi harf, T_NUM için hangi rakam vb.
-} Token;
-
 // Gramerdeki tüm non-terminal sembolleri parse edecek fonksiyonlarımızın imzaları
 static void P();
 static void C();
@@ -51,20 +55,30 @@ static int  T();
 static int  U();
 static int  F();
 
-typedef struct {
+typedef struct 
+{
+    TokenType type;
+    char      ch;  // T_ID için hangi harf, T_NUM için hangi rakam vb.
+} Token;
+
+
+typedef struct 
+{
     Token* tokens;
     int    count;
     int    capacity;
 } TokenBuffer;
 
 // parseTokens için mini-lexer state
-typedef struct {
+typedef struct 
+{
     Token* tokens;
     int    pos;
     int    size;
 } MiniLexer;
 
-typedef struct {
+typedef struct 
+{
     Token* tokens;
     int    pos;
     int    size;
