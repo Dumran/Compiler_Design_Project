@@ -3,7 +3,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -Werror
 AR = ar -rc
 
-SRCS = ft_isdigit.c ft_memset.c ft_tolower.c interpreter.c
+SRCS =  ft_utils.c interpreter.c
 
 OBJS = $(SRCS:.c=.o)
 

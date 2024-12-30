@@ -1,9 +1,8 @@
-#include <stdio.h>
 #include "interpreter.h"
 
 int main(void)
 {
-    const char* myProgram =
+    const char* interMyPreter =
         "n = 0;\n"
         "{ n - 2*5 ?\n"
         "  < n;\n"
@@ -11,7 +10,6 @@ int main(void)
         "}\n"
         ".\n";
 
-    interpret(myProgram);
-
+    interpret(interMyPreter);
     return 0;
 }
