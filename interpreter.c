@@ -1,18 +1,72 @@
 #include "interpreter.h"
 
+static const char* inputText;
+static int         position;
+static Token       currentToken;
+static int         variables[26];
+static int         executeFlag = 1;
+
+static Token getToken(void);
+static void getNextToken(void);
+static void reportError(const char* msg);
+static void parseP(void);
+static void parseC(void);
+static void parseIf(void);
+static void parseWhile(void);
+static void parseAssignment(void);
+static void parseOutput(void);
+static void parseInput(void);
+static int  parseExpr(void);
+static int  parseTerm(void);
+static int  parsePower(void);
+static int  parseFactor(void);
+
+static void initTokenBuffer(TokenBuffer* buf);
+static void freeTokenBuffer(TokenBuffer* buf);
+static void pushToken(TokenBuffer* buf, Token tk);
+
+/* --- For mini-lexer in while condition --- */
+static int miniParseE(MiniLexer* ml);
+static int miniParseT(MiniLexer* ml);
+static int miniParseU(MiniLexer* ml);
+static int miniParseF(MiniLexer* ml);
+
+/* --- For block parser in while body --- */
+static void   blockParse(BlockParser* bp);
+static void   blockStatement(BlockParser* bp);
+static void   blockIf(BlockParser* bp);
+static int    blockExpr(BlockParser* bp);
+static int    blockTerm(BlockParser* bp);
+static int    blockPower(BlockParser* bp);
+static int    blockFactor(BlockParser* bp);
+static Token  blockNextToken(BlockParser* bp);
+static Token  blockPeekToken(BlockParser* bp);
+static void   blockError(const char* msg);
+
+void interpret(const char* programText)
+{
+    inputText  = programText;
+    position   = 0;
+    ft_memset(variables, 0, sizeof(variables));
+    getNextToken();
+    parseP();
+}
+
+static Token getToken(void)
+{
     Token t;
-    while (input[position] && isspace((unsigned char)input[position])) 
+    while (inputText[position] && isspace((unsigned char)inputText[position]))
         position++;
 
-    if (!input[position]) 
+    if (!inputText[position])
     {
         t.type = T_END;
         t.ch   = 0;
         return t;
     }
 
-    char c = input[position++];
-    switch (c) 
+    char c = inputText[position++];
+    switch (c)
     {
         case '[': t.type = T_LBRACKET; t.ch = c; return t;
         case ']': t.type = T_RBRACKET; t.ch = c; return t;
@@ -34,19 +88,19 @@
         case '<': t.type = T_LT;       t.ch = c; return t;
         case '>': t.type = T_GT;       t.ch = c; return t;
         default:
-            if (islower((unsigned char)c)) 
+            if (ft_tolower((unsigned char)c))
             {
                 t.type = T_ID;
                 t.ch   = c;
                 return t;
-            } 
-            else if (isdigit((unsigned char)c)) 
+            }
+            else if (ft_isdigit((unsigned char)c))
             {
                 t.type = T_NUM;
                 t.ch   = c;
                 return t;
-            } 
-            else 
+            }
+            else
             {
                 t.type = T_UNKNOWN;
                 t.ch   = c;
@@ -55,158 +109,134 @@
     }
 }
 
-static void getNextToken() 
+static void getNextToken(void)
 {
     currentToken = getToken();
 }
 
-static void error(const char* msg) 
+static void reportError(const char* msg)
 {
-    fprintf(stderr, "Parser error: %s\n", msg);
+    fprintf(stderr, "Parser Error: %s\n", msg);
     exit(1);
 }
 
-static void initTokenBuffer(TokenBuffer* buf) 
+static void initTokenBuffer(TokenBuffer* buf)
 {
-    buf->count = 0;
+    buf->count    = 0;
     buf->capacity = 16;
-    buf->tokens = (Token*)malloc(sizeof(Token)*buf->capacity);
+    buf->tokens   = (Token*)malloc(sizeof(Token) * buf->capacity);
 }
 
-static void freeTokenBuffer(TokenBuffer* buf) 
+static void freeTokenBuffer(TokenBuffer* buf)
 {
-    if (buf->tokens) 
-    {
+    if (buf->tokens)
         free(buf->tokens);
-    }
-    buf->tokens = NULL;
-    buf->count = 0;
+    buf->tokens   = NULL;
+    buf->count    = 0;
     buf->capacity = 0;
 }
 
-static void pushToken(TokenBuffer* buf, Token tk) 
+static void pushToken(TokenBuffer* buf, Token tk)
 {
-    if (buf->count >= buf->capacity) 
+    if (buf->count >= buf->capacity)
     {
         buf->capacity *= 2;
-        buf->tokens = (Token*)realloc(buf->tokens, sizeof(Token)*buf->capacity);
+        buf->tokens = (Token*)realloc(buf->tokens, sizeof(Token) * buf->capacity);
     }
     buf->tokens[buf->count++] = tk;
 }
 
-static void ml_init(MiniLexer* ml, Token* tokens, int size) 
+static void parseP(void)
 {
-    ml->tokens = tokens;
-    ml->pos    = 0;
-    ml->size   = size;
-}
-
-static Token ml_getToken(MiniLexer* ml) 
-{
-    if (ml->pos >= ml->size) 
+    while (currentToken.type != T_DOT)
     {
-        Token t;
-        t.type = T_END;
-        t.ch = 0;
-        return t;
-    }
-    return ml->tokens[ml->pos++];
-}
-static void P() 
-{
-    while (currentToken.type != T_DOT) 
-    {
-        if (currentToken.type == T_END) 
-        {
-            error("P: Program sonu gelmeden '.' bekleniyor.");
-        }
-        C();
+        if (currentToken.type == T_END)
+            reportError("Expected '.' before end of program");
+        parseC();
     }
     getNextToken();
-    printf("Program basariyla parse edildi.\n");
+    printf("Program successfully parsed.\n");
 }
 
-static void C() 
+static void parseC(void)
 {
-    switch (currentToken.type) 
+    switch (currentToken.type)
     {
         case T_LBRACKET:
             getNextToken();
-            I();
+            parseIf();
             break;
         case T_LBRACE:
             getNextToken();
-            W();
+            parseWhile();
             break;
         case T_ID:
-            A();
+            parseAssignment();
             break;
         case T_LT:
             getNextToken();
-            Cik();
+            parseOutput();
             break;
         case T_GT:
             getNextToken();
-            Girdi();
+            parseInput();
             break;
         default:
-            error("C: Beklenmeyen token.");
+            reportError("Unexpected token in parseC");
     }
 }
-static void I() 
+
+static void parseIf(void)
 {
-    int cond = E(); 
-
-    if (currentToken.type != T_QUESTION) 
-        error("IF: '?' bekleniyor.");
-    getNextToken(); 
-
-    int savedFlag = executeFlag;
-    if (cond != 0) 
-        executeFlag = 1; 
-    else 
-        executeFlag = 0;
-
-    while (currentToken.type != T_COLON && currentToken.type != T_RBRACKET) 
-    {
-        if (currentToken.type == T_DOT || currentToken.type == T_END) 
-            error("IF: ':' veya ']' bekleniyor.");
-        C(); 
-    }
-
-    if (currentToken.type == T_COLON) 
-    {
-
-        getNextToken();
-        if (cond != 0) 
-            executeFlag = 0;
-        else 
-            executeFlag = 1;
-        while (currentToken.type != T_RBRACKET) 
-        {
-            if (currentToken.type == T_DOT || currentToken.type == T_END) 
-                error("IF: ']' bekleniyor.");
-            C();
-        }
-    }
-
-    if (currentToken.type != T_RBRACKET) 
-        error("IF: ']' bekleniyor.");
+    int condition = parseExpr();
+    if (currentToken.type != T_QUESTION)
+        reportError("Missing '?' in IF statement");
     getNextToken();
+    {
+        int savedExec = executeFlag;
+        if (condition != 0)
+            executeFlag = 1;
+        else
+            executeFlag = 0;
 
+        while (currentToken.type != T_COLON && currentToken.type != T_RBRACKET)
+        {
+            if (currentToken.type == T_DOT || currentToken.type == T_END)
+                reportError("Missing ':' or ']' in IF");
+            parseC();
+        }
 
-    executeFlag = savedFlag;
+        if (currentToken.type == T_COLON)
+        {
+            getNextToken();
+            if (condition != 0)
+                executeFlag = 0;
+            else
+                executeFlag = 1;
+
+            while (currentToken.type != T_RBRACKET)
+            {
+                if (currentToken.type == T_DOT || currentToken.type == T_END)
+                    reportError("Missing ']' in IF");
+                parseC();
+            }
+        }
+        if (currentToken.type != T_RBRACKET)
+            reportError("Missing ']' in IF");
+        getNextToken();
+        executeFlag = savedExec;
+    }
 }
-static void W() 
+
+static void parseWhile(void)
 {
-   
-    TokenBuffer condBuf; 
+    TokenBuffer condBuf;
     initTokenBuffer(&condBuf);
 
-    while (currentToken.type != T_QUESTION) 
+    while (currentToken.type != T_QUESTION)
     {
-        if (currentToken.type == T_END || currentToken.type == T_DOT) 
-            error("WHILE: Kosul ifadesinde '?' bekleniyor.");
+        if (currentToken.type == T_END || currentToken.type == T_DOT)
+            reportError("Missing '?' in WHILE condition");
         pushToken(&condBuf, currentToken);
         getNextToken();
     }
@@ -215,425 +245,82 @@ static void W()
     TokenBuffer blockBuf;
     initTokenBuffer(&blockBuf);
 
-    while (currentToken.type != T_RBRACE) 
+    while (currentToken.type != T_RBRACE)
     {
-        if (currentToken.type == T_END || currentToken.type == T_DOT) 
-            error("WHILE: '}' bekleniyor.");
+        if (currentToken.type == T_END || currentToken.type == T_DOT)
+            reportError("Missing '}' in WHILE block");
         pushToken(&blockBuf, currentToken);
         getNextToken();
     }
     getNextToken();
 
-    while (1) 
+    while (1)
     {
         MiniLexer mlCond;
-        ml_init(&mlCond, condBuf.tokens, condBuf.count);
+        mlCond.tokens = condBuf.tokens;
+        mlCond.pos    = 0;
+        mlCond.size   = condBuf.count;
 
-        int condVal = 0;
-
-       
-        int parseE(MiniLexer* ml);
-
-
-            Token tk = ml_getToken(ml);
-            if (tk.type == T_LPAREN) 
-            {
-                int val = parseE(ml);
-                Token tk2 = ml_getToken(ml);
-                if (tk2.type != T_RPAREN) 
-                    error("WHILE: parantez kapatilmiyor (mini parse).");
-                return val;
-            } 
-            else if (tk.type == T_ID) 
-            {
-                int idx = tk.ch - 'a';
-                return variables[idx];
-            } 
-            else if (tk.type == T_NUM) 
-                return tk.ch - '0';
-            else 
-                error("WHILE: parseF beklenmeyen token");
-            return 0;
-        }
-
-        int parseU(MiniLexer* ml) 
-        {
-            int left = parseF(ml);
-
-            if (ml->pos < ml->size && ml->tokens[ml->pos].type == T_CARET)
-            {
-                ml->pos++;
-                int right = parseU(ml);
-                int result = 1;
-                for(int i=0; i<right; i++)
-                    result *= left;
-                return result;
-            }
-            return left;
-        }
-
-        int parseT(MiniLexer* ml) 
-        {
-            int result = parseU(ml);
-            while (ml->pos < ml->size) 
-            {
-                Token op = ml->tokens[ml->pos];
-                if (op.type == T_STAR || op.type == T_SLASH || op.type == T_MOD) 
-                {
-                    ml->pos++;
-                    int right = parseU(ml);
-                    if (op.type == T_STAR)
-                        result *= right;
-                    else if (op.type == T_SLASH) 
-                    {
-                        if (right == 0) 
-                            error("WHILE: 0'a bolunemez (mini parse).");
-                        result /= right;
-                    }
-                    else if (op.type == T_MOD) {
-                        if (right == 0) 
-                            error("WHILE: 0'a gore mod alinamaz (mini parse).");
-                        result %= right;
-                    }
-                    else 
-                        break;
-                }
-            }
-            return result;
-        }
-
-        int parseE(MiniLexer* ml) 
-        {
-            int result = parseT(ml);
-            while (ml->pos < ml->size) 
-            {
-                Token op = ml->tokens[ml->pos];
-                if (op.type == T_PLUS || op.type == T_MINUS) 
-                {
-                    ml->pos++;
-                    int right = parseT(ml);
-                    if (op.type == T_PLUS)  result += right;
-                    else                    result -= right;
-                } 
-                else
-                    break;
-            }
-            return result;
-        }
-
-        condVal = parseE(&mlCond);
-
-        if (condVal == 0) 
+        int condVal = miniParseE(&mlCond);
+        if (condVal == 0)
             break;
-
-        int block_E(BlockParser* bp);
-
-        void block_error(const char* msg) 
-        { 
-            fprintf(stderr, "WHILE block parse error: %s\n", msg);
-            exit(1);
-        }
-
-        Token block_nextToken(BlockParser* bp) 
-        {
-            if (bp->pos >= bp->size) 
-            {
-                Token t;
-                t.type = T_END;
-                t.ch   = 0;
-                return t;
-            }
-            return bp->tokens[bp->pos++];
-        }
-
-        Token block_peekToken(BlockParser* bp) 
-        {
-            if (bp->pos >= bp->size) 
-            {
-                Token t;
-                t.type = T_END;
-                t.ch   = 0;
-                return t;
-            }
-            return bp->tokens[bp->pos];
-        }
-
-        void block_C(BlockParser* bp); 
-        void block_I(BlockParser* bp);
-
-        void block_parseBlock(BlockParser* bp) 
-        {
-
-            while (bp->pos < bp->size) 
-            {
-                block_C(bp);
-            }
-        }
-
-        void block_C(BlockParser* bp) 
-        {
-            Token tk = block_peekToken(bp);
-            switch (tk.type) 
-            {
-                case T_LBRACKET: 
-                    block_nextToken(bp);
-                    block_I(bp);
-                    break;
-                case T_LBRACE:
-                    block_nextToken(bp); 
-                    block_error("Nested while icin extra parser kodu gerekli, ornek iskelet.");
-                    break;
-                case T_ID: 
-                {
-                    Token varTok = block_nextToken(bp);
-                    Token eqTok  = block_nextToken(bp); 
-                    if (eqTok.type != T_ASSIGN) 
-                        block_error("WHILE block: Atama icin '=' bekleniyor.");
-                    int val = block_E(bp);
-                    Token semi = block_nextToken(bp);
-                    if (semi.type != T_SEMI) 
-                        block_error("WHILE block: Atama sonunda ';' bekleniyor.");
-                    if (bp->execFlag) 
-                    {
-                        int idx = varTok.ch - 'a';
-                        variables[idx] = val;
-                    }
-                } 
-                break;
-                case T_LT: 
-                {
-                    block_nextToken(bp); 
-                    int val = block_E(bp);
-                    Token semi = block_nextToken(bp);
-                    if (semi.type != T_SEMI)
-                        block_error("WHILE block: cıkıs ifadesinde ';' bekleniyor.");
-                    if (bp->execFlag)
-                        printf("%d\n", val);
-                } 
-                break;
-                case T_GT: 
-                {
-                    block_nextToken(bp);
-                    Token varTok = block_nextToken(bp);
-                    if (varTok.type != T_ID)
-                        block_error("WHILE block: Girdi icin ID bekleniyor.");
-                    Token semi = block_nextToken(bp);
-                    if (semi.type != T_SEMI)
-                        block_error("WHILE block: Girdi ifadesinde ';' bekleniyor.");
-                    if (bp->execFlag) 
-                    {
-                        int val;
-                        printf("Input for variable '%c': ", varTok.ch);
-                        scanf("%d", &val);
-                        int idx = varTok.ch - 'a';
-                        variables[idx] = val;
-                    }
-                } 
-                break;
-                default:
-                    if (tk.type == T_END)
-                        return;
-                    block_error("WHILE block: Beklenmeyen token C()");
-            }
-        }
-
-        void block_I(BlockParser* bp) 
-        {
-            int saved = bp->execFlag;
-            int condVal = 0;
-
-            condVal = block_E(bp);
-
-            Token qTok = block_nextToken(bp);
-            if (qTok.type != T_QUESTION) 
-                block_error("WHILE block: IF icin '?' bekleniyor.");
-
-            if (condVal != 0)
-                bp->execFlag = 1;
-            else
-                bp->execFlag = 0;
-
-            while (1) 
-            {
-                Token pk = block_peekToken(bp);
-                if (pk.type == T_COLON || pk.type == T_RBRACKET || pk.type == T_END)
-                    break;
-                block_C(bp);
-            }
-
-            pk = block_peekToken(bp);
-            if (pk.type == T_COLON) 
-            {
-                block_nextToken(bp);
-                if (condVal != 0)
-                    bp->execFlag = 0;
-                else
-                    bp->execFlag = 1;
-                while (1) 
-                {
-                    Token pk2 = block_peekToken(bp);
-                    if (pk2.type == T_RBRACKET || pk2.type == T_END)
-                        break;
-                    block_C(bp);
-                }
-            }
-            Token rb = block_nextToken(bp);
-            if (rb.type != T_RBRACKET)
-                block_error("WHILE block: IF icin ']' bekleniyor.");
-            bp->execFlag = saved;
-        }
-
-        int block_T(BlockParser* bp);
-
-        int block_E(BlockParser* bp) 
-        {
-            int result = block_T(bp);
-            while (1) 
-            {
-                Token pk = block_peekToken(bp);
-                if (pk.type == T_PLUS || pk.type == T_MINUS) 
-                {
-                    block_nextToken(bp);
-                    int right = block_T(bp);
-                    if (pk.type == T_PLUS)  result += right;
-                    else                    result -= right;
-                } 
-                else
-                    break;
-            }
-            return result;
-        }
-
-        int block_U(BlockParser* bp);
-
-        int block_T(BlockParser* bp) 
-        {
-            int result = block_U(bp);
-            while (1) 
-            {
-                Token pk = block_peekToken(bp);
-                if (pk.type == T_STAR || pk.type == T_SLASH || pk.type == T_MOD) 
-                {
-                    block_nextToken(bp);
-                    int right = block_U(bp);
-                    if (pk.type == T_STAR) 
-                        result *= right;
-                    else if (pk.type == T_SLASH) 
-                    {
-                        if (right == 0)
-                            block_error("WHILE block parse: 0'a bolunemez.");
-                        result /= right;
-                    } 
-                    else 
-                    {
-                        if (right == 0)
-                            block_error("WHILE block parse: 0 mod hatasi.");
-                        result %= right;
-                    }
-                } 
-                else
-                    break;
-            }
-            return result;
-        }
-
-        int block_F(BlockParser* bp);
-
-        int block_U(BlockParser* bp) 
-        {
-            int left = block_F(bp);
-            Token pk = block_peekToken(bp);
-            if (pk.type == T_CARET) 
-            {
-                block_nextToken(bp);
-                int right = block_U(bp);
-                int result = 1;
-                for(int i=0; i<right; i++)
-                    result *= left;
-                return result;
-            }
-            return left;
-        }
-
-        int block_F(BlockParser* bp) 
-        {
-            Token tk = block_nextToken(bp);
-            if (tk.type == T_LPAREN) 
-            {
-                int val = block_E(bp);
-                Token tk2 = block_nextToken(bp);
-                if (tk2.type != T_RPAREN) 
-                    block_error("WHILE block parse: ')' bekleniyor.");
-                return val;
-            } 
-            else if (tk.type == T_ID) 
-            {
-                int idx = tk.ch - 'a';
-                return variables[idx];
-            } 
-            else if (tk.type == T_NUM) 
-                return tk.ch - '0';
-            else 
-                block_error("WHILE block parse: F beklenmeyen token");
-            return 0;
-        }
 
         BlockParser bp;
         bp.tokens   = blockBuf.tokens;
         bp.pos      = 0;
         bp.size     = blockBuf.count;
         bp.execFlag = 1;
-        block_parseBlock(&bp);
+
+        blockParse(&bp);
     }
 
     freeTokenBuffer(&condBuf);
     freeTokenBuffer(&blockBuf);
 }
 
-static void A() 
+static void parseAssignment(void)
 {
     char varName = currentToken.ch;
     getNextToken();
-
-    if (currentToken.type != T_ASSIGN) 
-        error("Atama: '=' bekleniyor.");
+    if (currentToken.type != T_ASSIGN)
+        reportError("Missing '=' in assignment");
     getNextToken();
 
-    int val = E();
-
-    if (currentToken.type != T_SEMI) 
-        error("Atama sonunda ';' bekleniyor.");
+    int val = parseExpr();
+    if (currentToken.type != T_SEMI)
+        reportError("Missing ';' at the end of assignment");
     getNextToken();
 
-    if (executeFlag) 
+    if (executeFlag)
     {
         int idx = varName - 'a';
         variables[idx] = val;
     }
 }
 
-static void Cik() 
+static void parseOutput(void)
 {
-    int val = E();
-    if (currentToken.type != T_SEMI) 
-        error("Cikti ifadesinde ';' bekleniyor.");
+    int val = parseExpr();
+    if (currentToken.type != T_SEMI)
+        reportError("Missing ';' after output expression");
     getNextToken();
 
-    if (executeFlag) 
+    if (executeFlag)
         printf("%d\n", val);
 }
 
-static void Girdi() 
+static void parseInput(void)
 {
-    if (currentToken.type != T_ID) 
-        error("Girdi ifadesinde degisken (ID) bekleniyor.");
+    if (currentToken.type != T_ID)
+        reportError("Missing variable ID in input statement");
     char varName = currentToken.ch;
     getNextToken();
-    if (currentToken.type != T_SEMI) 
-        error("Girdi ifadesinde ';' bekleniyor.");
+
+    if (currentToken.type != T_SEMI)
+        reportError("Missing ';' after input statement");
     getNextToken();
 
-    if (executeFlag) 
+    if (executeFlag)
     {
         int val;
         printf("Input for variable '%c': ", varName);
@@ -643,86 +330,423 @@ static void Girdi()
     }
 }
 
-static int E() 
+static int parseExpr(void)
 {
-    int result = T();
-    while (currentToken.type == T_PLUS || currentToken.type == T_MINUS) 
+    int result = parseTerm();
+    while (currentToken.type == T_PLUS || currentToken.type == T_MINUS)
     {
         TokenType op = currentToken.type;
         getNextToken();
-        int right = T();
-        if (op == T_PLUS) result += right;
-        else             result -= right;
+        int right = parseTerm();
+        if (op == T_PLUS)  result += right;
+        else               result -= right;
     }
     return result;
 }
 
-static int T() 
+static int parseTerm(void)
 {
-    int result = U();
-    while (currentToken.type == T_STAR || currentToken.type == T_SLASH || currentToken.type == T_MOD) 
+    int result = parsePower();
+    while (currentToken.type == T_STAR || currentToken.type == T_SLASH || currentToken.type == T_MOD)
     {
         TokenType op = currentToken.type;
         getNextToken();
-        int right = U();
-        if (op == T_STAR) 
+        int right = parsePower();
+        if (op == T_STAR)
             result *= right;
-        else if (op == T_SLASH) 
+        else if (op == T_SLASH)
         {
-            if (right == 0) 
-                error("Bolme hatasi: 0'a bolunemez.");
+            if (right == 0)
+                reportError("Division by zero");
             result /= right;
-        } 
-        else if (op == T_MOD) 
+        }
+        else if (op == T_MOD)
         {
-            if (right == 0) 
-                error("Mod hatasi: 0'a gore mod alinamaz.");
+            if (right == 0)
+                reportError("Modulo by zero");
             result %= right;
         }
     }
     return result;
 }
 
-static int U() 
+static int parsePower(void)
 {
-    int left = F();
-    if (currentToken.type == T_CARET) 
+    int left = parseFactor();
+    if (currentToken.type == T_CARET)
     {
         getNextToken();
-        int right = U();
+        int right = parsePower();
+        int out = 1;
+        for(int i = 0; i < right; i++)
+            out *= left;
+        return out;
+    }
+    return left;
+}
+
+static int parseFactor(void)
+{
+    if (currentToken.type == T_LPAREN)
+    {
+        getNextToken();
+        int val = parseExpr();
+        if (currentToken.type != T_RPAREN)
+            reportError("Missing ')' in factor");
+        getNextToken();
+        return val;
+    }
+    else if (currentToken.type == T_ID)
+    {
+        char varName = currentToken.ch;
+        getNextToken();
+        int idx = varName - 'a';
+        return variables[idx];
+    }
+    else if (currentToken.type == T_NUM)
+    {
+        int val = currentToken.ch - '0';
+        getNextToken();
+        return val;
+    }
+    else
+        reportError("Unexpected token in parseFactor");
+    return 0;
+}
+static int miniParseF(MiniLexer* ml)
+{
+    if (ml->pos >= ml->size)
+        reportError("miniParseF: out of tokens");
+
+    Token tk = ml->tokens[ml->pos++];
+    if (tk.type == T_LPAREN)
+    {
+        int val = miniParseE(ml);
+        if (ml->pos >= ml->size)
+            reportError("miniParseF: missing ')' token");
+        Token tk2 = ml->tokens[ml->pos++];
+        if (tk2.type != T_RPAREN)
+            reportError("miniParseF: missing closing parenthesis");
+        return val;
+    }
+    else if (tk.type == T_ID)
+    {
+        int idx = tk.ch - 'a';
+        return variables[idx];
+    }
+    else if (tk.type == T_NUM)
+    {
+        return tk.ch - '0';
+    }
+    else
+        reportError("miniParseF: unexpected token");
+    return 0;
+}
+
+static int miniParseU(MiniLexer* ml)
+{
+    int left = miniParseF(ml);
+    if (ml->pos < ml->size && ml->tokens[ml->pos].type == T_CARET)
+    {
+        ml->pos++;
+        int right = miniParseU(ml);
         int result = 1;
-        for(int i=0; i<right; i++)
+        for (int i = 0; i < right; i++)
             result *= left;
         return result;
     }
     return left;
 }
 
-static int F() 
+static int miniParseT(MiniLexer* ml)
 {
-    if (currentToken.type == T_LPAREN) 
+    int result = miniParseU(ml);
+    while (ml->pos < ml->size)
     {
-        getNextToken();
-        int val = E();
-        if (currentToken.type != T_RPAREN) 
-            error("Parantez kapatma hatasi: ')' bekleniyor.");
-        getNextToken();
-        return val;
-    } 
-    else if (currentToken.type == T_ID) 
+        Token op = ml->tokens[ml->pos];
+        if (op.type == T_STAR || op.type == T_SLASH || op.type == T_MOD)
+        {
+            ml->pos++;
+            int right = miniParseU(ml);
+            if (op.type == T_STAR)
+                result *= right;
+            else if (op.type == T_SLASH)
+            {
+                if (right == 0)
+                    reportError("miniParseT: divide by zero");
+                result /= right;
+            }
+            else if (op.type == T_MOD)
+            {
+                if (right == 0)
+                    reportError("miniParseT: modulo by zero");
+                result %= right;
+            }
+        }
+        else
+            break;
+    }
+    return result;
+}
+
+static int miniParseE(MiniLexer* ml)
+{
+    int result = miniParseT(ml);
+    while (ml->pos < ml->size)
     {
-        char varName = currentToken.ch;
-        getNextToken();
-        int idx = varName - 'a';
-        return variables[idx];
-    } 
-    else if (currentToken.type == T_NUM) 
+        Token op = ml->tokens[ml->pos];
+        if (op.type == T_PLUS || op.type == T_MINUS)
+        {
+            ml->pos++;
+            int right = miniParseT(ml);
+            if (op.type == T_PLUS)
+                result += right;
+            else
+                result -= right;
+        }
+        else
+            break;
+    }
+    return result;
+}
+static void blockError(const char* msg)
+{
+    fprintf(stderr, "While block parse error: %s\n", msg);
+    exit(1);
+}
+
+static Token blockNextToken(BlockParser* bp)
+{
+    if (bp->pos >= bp->size)
     {
-        int val = currentToken.ch - '0';
-        getNextToken();
-        return val;
-    } 
+        Token t;
+        t.type = T_END;
+        t.ch   = 0;
+        return t;
+    }
+    return bp->tokens[bp->pos++];
+}
+
+static Token blockPeekToken(BlockParser* bp)
+{
+    if (bp->pos >= bp->size)
+    {
+        Token t;
+        t.type = T_END;
+        t.ch   = 0;
+        return t;
+    }
+    return bp->tokens[bp->pos];
+}
+
+static void blockParse(BlockParser* bp)
+{
+    while (bp->pos < bp->size)
+    {
+        blockStatement(bp);
+    }
+}
+
+static void blockStatement(BlockParser* bp)
+{
+    Token tk = blockPeekToken(bp);
+    switch (tk.type)
+    {
+        case T_LBRACKET:
+            blockNextToken(bp);
+            blockIf(bp);
+            break;
+        case T_LBRACE:
+            blockNextToken(bp);
+            blockError("Nested while is not implemented in this example.");
+            break;
+        case T_ID:
+        {
+            Token varTok = blockNextToken(bp);
+            Token eqTok  = blockNextToken(bp);
+            if (eqTok.type != T_ASSIGN)
+                blockError("Expected '=' in assignment");
+            int val = blockExpr(bp);
+            Token semi = blockNextToken(bp);
+            if (semi.type != T_SEMI)
+                blockError("Expected ';' after assignment");
+            if (bp->execFlag)
+            {
+                int idx = varTok.ch - 'a';
+                variables[idx] = val;
+            }
+        }
+        break;
+        case T_LT:
+        {
+            blockNextToken(bp);
+            int val = blockExpr(bp);
+            Token semi = blockNextToken(bp);
+            if (semi.type != T_SEMI)
+                blockError("Expected ';' after output");
+            if (bp->execFlag)
+                printf("%d\n", val);
+        }
+        break;
+        case T_GT:
+        {
+            blockNextToken(bp);
+            Token varTok = blockNextToken(bp);
+            if (varTok.type != T_ID)
+                blockError("Expected ID for input statement");
+            Token semi = blockNextToken(bp);
+            if (semi.type != T_SEMI)
+                blockError("Expected ';' after input");
+            if (bp->execFlag)
+            {
+                int val;
+                printf("Input for variable '%c': ", varTok.ch);
+                scanf("%d", &val);
+                int idx = varTok.ch - 'a';
+                variables[idx] = val;
+            }
+        }
+        break;
+        case T_END:
+            return;
+        default:
+            blockError("Unexpected token in blockStatement");
+    }
+}
+
+static void blockIf(BlockParser* bp)
+{
+    int saved = bp->execFlag;
+    int condVal = blockExpr(bp);
+    Token qTok = blockNextToken(bp);
+    if (qTok.type != T_QUESTION)
+        blockError("Missing '?' in blockIf");
+    if (condVal != 0)
+        bp->execFlag = 1;
     else
-        error("F: Beklenmeyen token.");
+        bp->execFlag = 0;
+
+    while (1)
+    {
+        Token pk = blockPeekToken(bp);
+        if (pk.type == T_COLON || pk.type == T_RBRACKET || pk.type == T_END)
+            break;
+        blockStatement(bp);
+    }
+
+    {
+        Token pk = blockPeekToken(bp);
+        if (pk.type == T_COLON)
+        {
+            blockNextToken(bp);
+            if (condVal != 0)
+                bp->execFlag = 0;
+            else
+                bp->execFlag = 1;
+            while (1)
+            {
+                Token pk2 = blockPeekToken(bp);
+                if (pk2.type == T_RBRACKET || pk2.type == T_END)
+                    break;
+                blockStatement(bp);
+            }
+        }
+    }
+    Token rb = blockNextToken(bp);
+    if (rb.type != T_RBRACKET)
+        blockError("Missing ']' in blockIf");
+    bp->execFlag = saved;
+}
+
+static int blockExpr(BlockParser* bp)
+{
+    int result = blockTerm(bp);
+    while (1)
+    {
+        Token pk = blockPeekToken(bp);
+        if (pk.type == T_PLUS || pk.type == T_MINUS)
+        {
+            Token op = blockNextToken(bp);
+            int right = blockTerm(bp);
+            if (op.type == T_PLUS)
+                result += right;
+            else
+                result -= right;
+        }
+        else
+            break;
+    }
+    return result;
+}
+
+static int blockTerm(BlockParser* bp)
+{
+    int result = blockPower(bp);
+    while (1)
+    {
+        Token pk = blockPeekToken(bp);
+        if (pk.type == T_STAR || pk.type == T_SLASH || pk.type == T_MOD)
+        {
+            Token op = blockNextToken(bp);
+            int right = blockPower(bp);
+            if (op.type == T_STAR)
+                result *= right;
+            else if (op.type == T_SLASH)
+            {
+                if (right == 0)
+                    blockError("Division by zero in while block");
+                result /= right;
+            }
+            else
+            {
+                if (right == 0)
+                    blockError("Modulo by zero in while block");
+                result %= right;
+            }
+        }
+        else
+            break;
+    }
+    return result;
+}
+
+static int blockPower(BlockParser* bp)
+{
+    int left = blockFactor(bp);
+    Token pk = blockPeekToken(bp);
+    if (pk.type == T_CARET)
+    {
+        blockNextToken(bp);
+        int right = blockPower(bp);
+        int out = 1;
+        for(int i = 0; i < right; i++)
+            out *= left;
+        return out;
+    }
+    return left;
+}
+
+static int blockFactor(BlockParser* bp)
+{
+    Token tk = blockNextToken(bp);
+    if (tk.type == T_LPAREN)
+    {
+        int val = blockExpr(bp);
+        Token tk2 = blockNextToken(bp);
+        if (tk2.type != T_RPAREN)
+            blockError("Missing ')' in blockFactor");
+        return val;
+    }
+    else if (tk.type == T_ID)
+    {
+        int idx = tk.ch - 'a';
+        return variables[idx];
+    }
+    else if (tk.type == T_NUM)
+    {
+        return tk.ch - '0';
+    }
+    else
+        blockError("Unexpected token in blockFactor");
     return 0;
 }

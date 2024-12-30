@@ -1,8 +1,9 @@
+#include <stdio.h>
 #include "interpreter.h"
 
-int main() 
+int main(void)
 {
-    const char* programText =
+    const char* myProgram =
         "n = 0;\n"
         "{ n - 2*5 ?\n"
         "  < n;\n"
@@ -10,12 +11,7 @@ int main()
         "}\n"
         ".\n";
 
-    input = programText;
-    position = 0;
-    ft_memset(variables, 0, sizeof(variables));
-
-    getNextToken();
-    P();
+    interpret(myProgram);
 
     return 0;
 }
