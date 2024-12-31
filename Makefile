@@ -1,21 +1,16 @@
-NAME = interpreter.a
-CC = gcc
-CFLAGS = -Wall -Wextra -Werror
-AR = ar -rc
+NAME = interpreter
+CC = gcc -o $(NAME)
 
-SRCS =  ft_utils.c interpreter.c
+SRCS =  ft_utils.c interpreter.c main.c
 
-OBJS = $(SRCS:.c=.o)
+$(NAME): $(SRCS)
+	@$(CC) $(SRCS)
 
 all: $(NAME)
 
-$(NAME): $(OBJS)
-	$(AR) $(NAME) $(OBJS)
-
-clean:
-	$(RM) $(OBJS) $(BONUSOBJS)
-
-fclean: clean
+clean: 
 	$(RM) $(NAME)
 
-re: fclean all
+re: clean all
+
+.PHONY: all clean re
