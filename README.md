@@ -62,12 +62,12 @@ This project can be compiled and run using any C compiler. Follow the steps belo
 
 ### Compilation
 ```bash
-gcc main.c -o parser
+gcc main.c -o interpreter
 ```
 
 ### Execution
 ```bash
-./parser
+./interpreter
 ```
 
 ## 🎯 Objectives
